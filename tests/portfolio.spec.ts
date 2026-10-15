@@ -45,3 +45,50 @@ test('missing image and video have intentional fallbacks; unknown route has reco
  await page.locator('.video-block').scrollIntoViewIfNeeded();await expect(page.getByText('ORIGINAL FOOTAGE TO FOLLOW',{exact:false})).toBeVisible();
  await page.goto('./#/missing');await expect(page.getByRole('heading',{level:1})).toContainText('BACK ON TRACK');await page.getByRole('link',{name:/Back to the portfolio/}).click();await expect(page).toHaveURL(/#\/$/);
 });
+
+test('EN/RU switch translates all pages and persists through navigation and reload',async({page,isMobile},testInfo)=>{
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('./');
+ const ru=page.getByRole('button',{name:'Русский',exact:true});
+ await expect(ru).toBeVisible();await ru.click();
+ await expect(page.locator('html')).toHaveAttribute('lang','ru');
+ await expect(ru).toHaveAttribute('aria-pressed','true');
+ await expect(page.getByRole('heading',{level:1})).toContainText('СТРАТЕГИЯ.');
+ await expect(page.locator('meta[name="description"]')).toHaveAttribute('content',/Артём Югай/);
+ await page.waitForTimeout(1600);await page.screenshot({path:`test-results/${testInfo.project.name}-ru-home.png`});
+ await page.reload();await expect(page.locator('html')).toHaveAttribute('lang','ru');
+ for(const slug of projects){
+  await page.goto(`./#/work/${slug}`);
+  await expect(page.locator('.case-objective')).toContainText('ЗАДАЧА');
+  await expect(page.locator('.case-role li').first()).toContainText(/[А-Яа-яЁё]/);
+  await expect(page.locator('.case-outcomes')).toContainText('КЛЮЧЕВЫЕ РЕЗУЛЬТАТЫ');
+  await expect(page.locator('.source-note')).toContainText(/[А-Яа-яЁё]/);
+  await expect(page).toHaveTitle(/Артём Югай/);
+  for(const caption of await page.locator('figcaption').all())await expect(caption).toContainText(/[А-Яа-яЁё]/);
+  await page.locator('.video-block').scrollIntoViewIfNeeded();await expect(page.getByText('МЕСТО ДЛЯ ВИДЕО · ОРИГИНАЛ БУДЕТ ДОБАВЛЕН')).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`RU ${slug}`).toBeTruthy();
+ }
+ await page.locator('.next-project').click();await expect(page).toHaveURL(/#\/work\/byd/);await expect(page.locator('.case-meta')).toContainText('Руководитель маркетинга');
+ if(isMobile)await page.getByRole('button',{name:'Открыть меню'}).click();
+ await page.getByRole('navigation').getByRole('link',{name:'Обо мне',exact:true}).click();
+ await expect(page.getByRole('heading',{level:1})).toContainText('ПРОДУМАТЬ.');
+ await expect(page.locator('.timeline-row').first()).toContainText('Июль 2025 — март 2026');
+ const cv=await page.getByRole('link',{name:/Скачать резюме/}).getAttribute('href');expect((await page.request.get(cv!)).status()).toBe(200);
+ await page.getByRole('button',{name:'English',exact:true}).click();
+ await expect(page.locator('html')).toHaveAttribute('lang','en');await expect(page).toHaveTitle('About — Artem Yugay');
+ await expect(page.getByRole('heading',{level:1})).toContainText('THE THINKING.');
+ await page.reload();await expect(page.locator('html')).toHaveAttribute('lang','en');
+ expect(errors).toEqual([]);
+});
+
+test('Russian layouts fit narrow phones and tablets; switch keeps current case',async({page})=>{
+ await page.emulateMedia({reducedMotion:'reduce'});await page.goto('./#/work/milliy');
+ await page.getByRole('button',{name:'Русский',exact:true}).click();await expect(page).toHaveURL(/#\/work\/milliy/);
+ for(const width of [360,768]){
+  await page.setViewportSize({width,height:900});
+  for(const route of ['','about',...projects.map(s=>`work/${s}`)]){
+   await page.goto(`./#/${route}`);await page.getByRole('heading',{level:1}).waitFor();
+   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${width}px ${route}`).toBeTruthy();
+  }
+ }
+});
